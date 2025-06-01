@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log"
 	"time"
 
@@ -22,8 +23,8 @@ func SetupRoutes(app *fiber.App, client *asynq.Client, dbConn *sql.DB) {
 			Message            string `json:"message" validate:"required"`
 			Email              string `json:"email" validate:"required,email"`
 			RunAt              string `json:"run_at"` // ISO8601 timestamp
-			ReccurenceInterval *int   `json:"reccurence_interval"`
-			ReccurenceLimit    *int   `json:"reccurence_limit"`
+			RecurrenceInterval *int   `json:"recurrence_interval"`
+			RecurrenceLimit    *int   `json:"recurrence_limit"`
 		}
 
 		var req Request
@@ -54,16 +55,36 @@ func SetupRoutes(app *fiber.App, client *asynq.Client, dbConn *sql.DB) {
 		payload := map[string]any{
 			"email":   req.Email,
 			"message": req.Message,
+			"userId":  req.UserID,
+			"taskId":  "",
+		}
+
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			log.Printf("Failed to marshal payload: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to encode payload"})
+		}
+
+		var recurrenceLimit sql.NullInt64
+		if req.RecurrenceLimit != nil {
+			recurrenceLimit = sql.NullInt64{Int64: int64(*req.RecurrenceLimit), Valid: true}
+		}
+
+		var recurrenceInterval sql.NullInt64
+		if req.RecurrenceInterval != nil {
+			recurrenceInterval = sql.NullInt64{Int64: int64(*req.RecurrenceInterval), Valid: true}
 		}
 
 		taskID, err := scheduled_tasks.InsertScheduledTask(context.Background(), dbConn, scheduled_tasks.ScheduledTask{
 			UserID:             req.UserID,
 			TaskType:           worker.TypeEmailReminder,
-			Payload:            payload,
-			RunAt:              runAt.Add(time.Duration(*req.ReccurenceInterval)),
-			RecurrenceLimit:    req.ReccurenceLimit,
-			RecurrenceInterval: req.ReccurenceInterval,
+			Payload:            payloadBytes,
+			RunAt:              runAt,
+			RecurrenceLimit:    recurrenceLimit,
+			RecurrenceInterval: recurrenceInterval,
 		})
+
+		log.Printf("Created scheduled_task %s", taskID)
 
 		if err != nil {
 			log.Printf("Failed to enqueue task: %v", err)

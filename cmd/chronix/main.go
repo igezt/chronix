@@ -16,6 +16,7 @@ import (
 
 	"github.com/igezt/chronix/api"
 	"github.com/igezt/chronix/db"
+	poller "github.com/igezt/chronix/internal/scheduler"
 	"github.com/igezt/chronix/internal/worker"
 )
 
@@ -61,7 +62,7 @@ func main() {
 
 	// Create a worker mux to handle tasks
 	mux := asynq.NewServeMux()
-	worker.RegisterHandlers(mux)
+	worker.RegisterHandlers(mux, database)
 
 	// Start worker in background
 	go func() {
@@ -69,6 +70,8 @@ func main() {
 			log.Fatalf("Asynq server error: %v", err)
 		}
 	}()
+
+	poller.Start(database, asynqClient, 5*time.Second)
 
 	// Setup HTTP server
 	app := fiber.New()
