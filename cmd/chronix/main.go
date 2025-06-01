@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"os"
 	"os/signal"
@@ -11,12 +12,31 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gofiber/fiber/v2"
 	"github.com/hibiken/asynq"
+	"github.com/joho/godotenv"
 
 	"github.com/igezt/chronix/api"
+	"github.com/igezt/chronix/db"
 	"github.com/igezt/chronix/internal/worker"
 )
 
 func main() {
+
+	err := godotenv.Load() // defaults to .env
+	if err != nil {
+		log.Fatal("No .env file found or failed to load it")
+	}
+
+	// Connect to DB
+	database, err := sql.Open("postgres", os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Run migrations
+	if err := db.RunMigrations(database); err != nil {
+		log.Fatalf("migrations failed: %v", err)
+	}
+
 	// Load configuration (can replace with Viper or .env later)
 	redisAddr := os.Getenv("REDIS_ADDR")
 	if redisAddr == "" {
@@ -52,7 +72,7 @@ func main() {
 
 	// Setup HTTP server
 	app := fiber.New()
-	api.SetupRoutes(app, asynqClient)
+	api.SetupRoutes(app, asynqClient, database)
 
 	// Run HTTP server in background
 	go func() {
